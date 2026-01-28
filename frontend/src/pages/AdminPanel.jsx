@@ -1,0 +1,13 @@
+import React from 'react';
+
+export default function AdminPanel() {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold text-slate-900">Admin Control Panel</h1>
+      <div className="card text-xs text-slate-500">
+        Manage roles, permissions, and institute-wide settings here.
+      </div>
+    </div>
+  );
+}
+

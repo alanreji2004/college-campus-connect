@@ -1,0 +1,101 @@
+const Joi = require('joi');
+const { recordAttendanceEvent } = require('../services/aiAttendanceService');
+
+const deviceAttendanceSchema = Joi.object({
+  body: Joi.object({
+    timestamp: Joi.date().iso().optional(),
+    recognized_user_id: Joi.string().uuid().optional(),
+    face_embedding: Joi.array().items(Joi.number()).optional()
+  })
+    .or('recognized_user_id', 'face_embedding')
+    .required(),
+  query: Joi.object({}).unknown(true),
+  params: Joi.object({}).unknown(true)
+});
+
+async function handleDeviceAttendance(req, res, next) {
+  try {
+    const { timestamp, recognized_user_id, face_embedding } = req.body;
+
+    const result = await recordAttendanceEvent({
+      device: { id: req.device.id },
+      timestamp,
+      recognizedUserId: recognized_user_id,
+      faceEmbedding: face_embedding,
+      rawPayload: req.body,
+      reqMeta: { ip: req.ip, userAgent: req.headers['user-agent'] }
+    });
+
+    return res.status(201).json({
+      attendance_id: result.attendanceId,
+      user: result.user,
+      confidence: result.confidence,
+      needs_review: result.needsReview,
+      review_reasons: result.reviewReasons
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+const bulkAttendanceSchema = Joi.object({
+  body: Joi.object({
+    events: Joi.array()
+      .items(
+        Joi.object({
+          timestamp: Joi.date().iso().optional(),
+          recognized_user_id: Joi.string().uuid().optional(),
+          face_embedding: Joi.array().items(Joi.number()).optional()
+        }).or('recognized_user_id', 'face_embedding')
+      )
+      .min(1)
+      .max(500)
+      .required()
+  }).required(),
+  query: Joi.object({}).unknown(true),
+  params: Joi.object({}).unknown(true)
+});
+
+async function handleBulkAttendance(req, res, next) {
+  try {
+    const results = [];
+
+    // Offline sync: process each event, but do not fail the whole batch if one fails
+    // Instead, collect successes and failures.
+    // To keep it simple, we process sequentially; can be optimized later.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const event of req.body.events) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await recordAttendanceEvent({
+          device: { id: req.device.id },
+          timestamp: event.timestamp,
+          recognizedUserId: event.recognized_user_id,
+          faceEmbedding: event.face_embedding,
+          rawPayload: event,
+          reqMeta: { ip: req.ip, userAgent: req.headers['user-agent'] }
+        });
+        results.push({ success: true, ...result });
+      } catch (err) {
+        results.push({
+          success: false,
+          error: err.message
+        });
+      }
+    }
+
+    return res.status(207).json({
+      results
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = {
+  deviceAttendanceSchema,
+  handleDeviceAttendance,
+  bulkAttendanceSchema,
+  handleBulkAttendance
+};
+

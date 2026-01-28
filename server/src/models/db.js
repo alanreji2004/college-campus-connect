@@ -1,0 +1,25 @@
+const { Pool } = require('pg');
+const config = require('../config');
+const { logger } = require('../utils/logger');
+
+const pool = new Pool({
+  connectionString: config.db.connectionString
+});
+
+pool.on('error', (err) => {
+  logger.error('Unexpected error on idle PostgreSQL client', err);
+  process.exit(-1);
+});
+
+const query = (text, params) => {
+  if (config.env !== 'production') {
+    logger.debug('DB QUERY:', text, params || []);
+  }
+  return pool.query(text, params);
+};
+
+module.exports = {
+  pool,
+  query
+};
+

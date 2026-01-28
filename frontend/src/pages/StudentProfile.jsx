@@ -1,0 +1,13 @@
+import React from 'react';
+import { useParams } from 'react-router-dom';
+
+export default function StudentProfile() {
+  const { id } = useParams();
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold text-slate-900">Student Profile</h1>
+      <div className="card text-xs text-slate-500">Profile details for student {id}.</div>
+    </div>
+  );
+}
+

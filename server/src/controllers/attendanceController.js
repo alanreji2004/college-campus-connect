@@ -1,0 +1,97 @@
+const Joi = require('joi');
+const createError = require('http-errors');
+const { markSubjectAttendance, requestManualOverride, applyCorrection } = require('../services/attendanceService');
+
+const markAttendanceSchema = Joi.object({
+  body: Joi.object({
+    subjectId: Joi.string().uuid().required(),
+    date: Joi.date().iso().required(),
+    session: Joi.string().max(32).optional(),
+    entries: Joi.array()
+      .items(
+        Joi.object({
+          studentId: Joi.string().uuid().required(),
+          status: Joi.string().valid('PRESENT', 'ABSENT', 'LATE', 'EXCUSED').required()
+        })
+      )
+      .min(1)
+      .required()
+  }).required(),
+  query: Joi.object({}).unknown(true),
+  params: Joi.object({}).unknown(true)
+});
+
+async function markAttendance(req, res, next) {
+  try {
+    const { subjectId, date, session, entries } = req.body;
+    const staffUser = {
+      id: req.user.sub,
+      roles: req.user.roles || [],
+      staff_id: req.user.staff_id
+    };
+    const results = await markSubjectAttendance({
+      staffUser,
+      subjectId,
+      date,
+      session,
+      entries
+    });
+    return res.status(201).json({ results });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+const overrideSchema = Joi.object({
+  body: Joi.object({
+    attendanceId: Joi.string().uuid().optional(),
+    studentId: Joi.string().uuid().optional(),
+    subjectId: Joi.string().uuid().optional(),
+    requestedStatus: Joi.string().valid('PRESENT', 'ABSENT', 'LATE', 'EXCUSED').required(),
+    reason: Joi.string().min(5).max(500).required()
+  })
+    .or('attendanceId', 'studentId')
+    .required(),
+  query: Joi.object({}).unknown(true),
+  params: Joi.object({}).unknown(true)
+});
+
+async function requestOverride(req, res, next) {
+  try {
+    const correction = await requestManualOverride({
+      requesterUser: { id: req.user.sub, roles: req.user.roles || [] },
+      attendanceId: req.body.attendanceId,
+      studentId: req.body.studentId,
+      subjectId: req.body.subjectId,
+      requestedStatus: req.body.requestedStatus,
+      reason: req.body.reason
+    });
+    return res.status(201).json({ correction });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// Only HOD can approve staff attendance corrections
+async function approveCorrection(req, res, next) {
+  try {
+    const { correctionId } = req.params;
+    const correction = await applyCorrection({
+      approverUser: { id: req.user.sub, roles: req.user.roles || [] },
+      correctionId
+    });
+    return res.json({ success: true, correction });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = {
+  markAttendanceSchema,
+  markAttendance,
+  overrideSchema,
+  requestOverride,
+  approveCorrection
+};
+
+

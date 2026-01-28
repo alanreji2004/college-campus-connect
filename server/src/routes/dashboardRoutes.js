@@ -1,0 +1,23 @@
+const express = require('express');
+const authMiddleware = require('../middlewares/authMiddleware');
+const { requireRole } = require('../middlewares/roleMiddleware');
+const { getDashboard } = require('../controllers/dashboardController');
+
+const router = express.Router();
+
+// Generic dashboard endpoint that uses the user's primary role
+router.get('/', authMiddleware, getDashboard);
+
+// Example explicit endpoints per role, if you want stricter routing:
+router.get('/super-admin', authMiddleware, requireRole('SUPER_ADMIN'), getDashboard);
+router.get('/principal', authMiddleware, requireRole('PRINCIPAL'), getDashboard);
+router.get('/hod', authMiddleware, requireRole('HOD'), getDashboard);
+router.get('/staff', authMiddleware, requireRole('STAFF'), getDashboard);
+router.get('/student', authMiddleware, requireRole('STUDENT'), getDashboard);
+router.get('/lab-assistant', authMiddleware, requireRole('LAB_ASSISTANT'), getDashboard);
+router.get('/accountant', authMiddleware, requireRole('ACCOUNTANT'), getDashboard);
+router.get('/librarian', authMiddleware, requireRole('LIBRARIAN'), getDashboard);
+router.get('/it-admin', authMiddleware, requireRole('IT_ADMIN'), getDashboard);
+
+module.exports = router;
+

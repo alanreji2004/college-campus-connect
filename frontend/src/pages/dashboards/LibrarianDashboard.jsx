@@ -1,0 +1,24 @@
+import React from 'react';
+
+export default function LibrarianDashboard() {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold text-slate-900">Librarian</h1>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="card">
+          <div className="text-xs font-medium text-slate-500">Books Issued</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">324</div>
+        </div>
+        <div className="card">
+          <div className="text-xs font-medium text-slate-500">Overdue</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">27</div>
+        </div>
+        <div className="card">
+          <div className="text-xs font-medium text-slate-500">Reservations</div>
+          <div className="mt-2 text-2xl font-semibold text-slate-900">18</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
