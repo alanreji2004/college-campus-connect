@@ -11,6 +11,7 @@ router.post('/users/bulk', adminController.bulkCreateUsers);
 router.get('/users', adminController.listUsers);
 router.delete('/users/:id', adminController.deleteUser);
 router.post('/promote', adminController.promoteStudents);
+router.get('/staff', adminController.listStaff);
 
 
 // Departments
@@ -18,6 +19,11 @@ router.get('/departments', adminController.listDepartments);
 router.post('/departments', adminController.createDepartment);
 router.put('/departments/:id', adminController.updateDepartment);
 router.delete('/departments/:id', adminController.deleteDepartment);
+
+// Classes
+router.get('/classes', adminController.listClasses);
+router.post('/classes', adminController.createClass);
+router.delete('/classes/:id', adminController.deleteClass);
 
 // Roles
 router.post('/assign-role', adminController.assignRole);

@@ -25,7 +25,6 @@ const ensureAdmin = (res) => {
     return true;
 };
 
-// User Management
 exports.createUser = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
@@ -55,7 +54,6 @@ exports.createUser = async (req, res, next) => {
 
         if (authError) throw authError;
 
-        // Ensure we don't store "department" (name) in Auth metadata if departmentCode exists
         if (authData.user.user_metadata.department && authData.user.user_metadata.departmentCode) {
             delete authData.user.user_metadata.department;
             await supabaseAdmin.auth.admin.updateUserById(authData.user.id, {
@@ -69,8 +67,23 @@ exports.createUser = async (req, res, next) => {
             .update({ roles: [role] })
             .eq('id', userId);
 
-
         if (dbError) console.error('DB Update Error:', dbError);
+
+        if (role === 'STUDENT' && metadata.class_id) {
+            await supabaseAdmin.from('students').insert([{
+                user_id: userId,
+                admission_number: metadata.admissionNo || `ENR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                department: metadata.departmentCode,
+                class_id: metadata.class_id
+            }]);
+        } else if (role === 'STAFF') {
+            await supabaseAdmin.from('staff').insert([{
+                user_id: userId,
+                staff_id: metadata.employeeId || `EMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                department: metadata.departmentCode,
+                designation: metadata.role || 'LECTURER'
+            }]);
+        }
 
         res.status(201).json({ message: 'User created successfully', user: authData.user });
     } catch (error) {
@@ -96,7 +109,7 @@ exports.bulkCreateUsers = async (req, res, next) => {
                     password = `${d}${m}${y}`;
                 }
 
-                const { error } = await supabaseAdmin.auth.admin.createUser({
+                const { data: authData, error } = await supabaseAdmin.auth.admin.createUser({
                     email: user.email,
                     password: password || 'Campus@123',
                     email_confirm: true,
@@ -105,6 +118,26 @@ exports.bulkCreateUsers = async (req, res, next) => {
                 });
 
                 if (error) throw error;
+
+                const userId = authData.user.id;
+                await supabaseAdmin.from('users').update({ roles: [user.role] }).eq('id', userId);
+
+                if (user.role === 'STUDENT' && user.metadata?.class_id) {
+                    await supabaseAdmin.from('students').insert([{
+                        user_id: userId,
+                        admission_number: user.metadata.admissionNo || `ENR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        department: user.metadata.departmentCode,
+                        class_id: user.metadata.class_id
+                    }]);
+                } else if (user.role === 'STAFF') {
+                    await supabaseAdmin.from('staff').insert([{
+                        user_id: userId,
+                        staff_id: user.metadata.employeeId || `EMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                        department: user.metadata.departmentCode,
+                        designation: user.role
+                    }]);
+                }
+
                 results.success++;
             } catch (err) {
                 results.failed++;
@@ -120,35 +153,50 @@ exports.bulkCreateUsers = async (req, res, next) => {
 exports.promoteStudents = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
-        const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
-        if (error) throw error;
+        const { data: classes, error: classError } = await supabaseAdmin.from('classes').select('*');
+        if (classError) throw classError;
 
-        let promoted = 0;
-        let graduated = 0;
+        let promotedClasses = 0;
+        let graduatedStudents = 0;
 
-        for (const user of users) {
-            const roles = user.app_metadata?.roles || [];
-            if (roles.includes('STUDENT')) {
-                const currentSem = user.user_metadata?.semester;
-                let semNum = parseInt(currentSem);
-                if (isNaN(semNum)) continue;
-
-                if (semNum >= 8) {
-                    await supabaseAdmin.auth.admin.deleteUser(user.id);
-                    graduated++;
-                } else {
-                    const newSem = semNum + 1;
-                    await supabaseAdmin.auth.admin.updateUserById(user.id, {
-                        user_metadata: {
-                            ...user.user_metadata,
-                            semester: `${newSem}${getOrdinal(newSem)} Semester`
+        for (const cls of classes) {
+            const nameMatch = cls.name.match(/S(\d+)/i);
+            if (nameMatch) {
+                const currentSem = parseInt(nameMatch[1]);
+                if (currentSem >= 8) {
+                    const { data: students } = await supabaseAdmin.from('students').select('user_id').eq('class_id', cls.id);
+                    if (students) {
+                        for (const s of students) {
+                            await supabaseAdmin.auth.admin.deleteUser(s.user_id);
+                            graduatedStudents++;
                         }
-                    });
-                    promoted++;
+                    }
+                    await supabaseAdmin.from('classes').delete().eq('id', cls.id);
+                } else {
+                    const nextSem = currentSem + 1;
+                    const updatedName = cls.name.replace(/S(\d+)/i, `S${nextSem}`);
+
+                    await supabaseAdmin.from('classes').update({
+                        name: updatedName,
+                        semester: nextSem
+                    }).eq('id', cls.id);
+
+                    const { data: students } = await supabaseAdmin.from('students').select('user_id').eq('class_id', cls.id);
+                    if (students) {
+                        for (const s of students) {
+                            const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(s.user_id);
+                            if (user) {
+                                await supabaseAdmin.auth.admin.updateUserById(s.user_id, {
+                                    user_metadata: { ...user.user_metadata, semester: `${nextSem}${getOrdinal(nextSem)} Semester` }
+                                });
+                            }
+                        }
+                    }
+                    promotedClasses++;
                 }
             }
         }
-        res.json({ message: 'Promotion complete', promoted, graduated });
+        res.json({ message: 'Promotion complete', promotedClasses, graduatedStudents });
     } catch (error) {
         next(error);
     }
@@ -168,31 +216,32 @@ exports.getStats = async (req, res, next) => {
 exports.listUsers = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
-        // Fetch users from Auth
-        const [{ data: { users }, error: authError }, { data: depts, error: deptError }] = await Promise.all([
+        const [{ data: { users }, error: authError }, { data: depts, error: deptError }, { data: students }, { data: staff }] = await Promise.all([
             supabaseAdmin.auth.admin.listUsers(),
-            supabaseAdmin.from('departments').select('name, code')
+            supabaseAdmin.from('departments').select('name, code'),
+            supabaseAdmin.from('students').select('user_id, admission_number'),
+            supabaseAdmin.from('staff').select('user_id, staff_id')
         ]);
 
         if (authError) throw authError;
         if (deptError) throw deptError;
 
-        // Create a lookup map for department names
-        const deptMap = (depts || []).reduce((acc, d) => {
-            acc[d.code] = d.name;
-            return acc;
-        }, {});
+        const deptMap = (depts || []).reduce((acc, d) => { acc[d.code] = d.name; return acc; }, {});
+        const studentMap = (students || []).reduce((acc, s) => { acc[s.user_id] = s.admission_number; return acc; }, {});
+        const staffMap = (staff || []).reduce((acc, s) => { acc[s.user_id] = s.staff_id; return acc; }, {});
 
         const formattedUsers = users.map(u => {
+            const role = u.user_metadata?.role || u.app_metadata?.roles?.[0] || 'USER';
             const deptCode = u.user_metadata?.departmentCode;
             return {
                 id: u.id,
                 email: u.email,
                 name: u.user_metadata?.full_name || 'N/A',
-                role: u.user_metadata?.role || u.app_metadata?.roles?.[0] || 'USER',
+                role,
                 dept: deptMap[deptCode] || deptCode || u.user_metadata?.department || 'N/A',
                 status: u.last_sign_in_at ? 'Active' : 'Inactive',
-                dob: u.user_metadata?.dob || 'N/A'
+                dob: u.user_metadata?.dob || 'N/A',
+                officialId: role === 'STUDENT' ? studentMap[u.id] : (role === 'STAFF' || role === 'HOD' ? staffMap[u.id] : 'N/A')
             };
         });
         res.json({ users: formattedUsers });
@@ -201,25 +250,37 @@ exports.listUsers = async (req, res, next) => {
     }
 };
 
+exports.listStaff = async (req, res, next) => {
+    if (!ensureAdmin(res)) return;
+    try {
+        const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
+        if (error) throw error;
+
+        const staff = users
+            .filter(u => (u.app_metadata?.roles?.includes('STAFF') || u.user_metadata?.role === 'STAFF' || u.app_metadata?.roles?.includes('HOD') || u.user_metadata?.role === 'HOD'))
+            .map(u => ({
+                id: u.id,
+                name: u.user_metadata?.full_name || u.email
+            }));
+
+        res.json({ staff });
+    } catch (error) {
+        next(error);
+    }
+};
 
 exports.deleteUser = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
         const { id } = req.params;
-
-        // Delete from Supabase Auth (this should trigger cascade in public.users if setup correctly)
         const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-
         if (error) throw error;
-
         res.json({ message: 'User deleted successfully' });
     } catch (error) {
         next(error);
     }
 };
 
-
-// Department Management
 exports.listDepartments = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
@@ -253,7 +314,6 @@ exports.createDepartment = async (req, res, next) => {
     }
 };
 
-
 exports.updateDepartment = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
@@ -274,7 +334,6 @@ exports.updateDepartment = async (req, res, next) => {
     }
 };
 
-
 exports.deleteDepartment = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
@@ -291,7 +350,51 @@ exports.deleteDepartment = async (req, res, next) => {
     }
 };
 
-// Role Assignment (HOD/Principal)
+exports.listClasses = async (req, res, next) => {
+    if (!ensureAdmin(res)) return;
+    try {
+        const { departmentCode } = req.query;
+        let query = supabaseAdmin.from('classes').select('*, tutor:users(full_name)');
+        if (departmentCode) query = query.eq('department_code', departmentCode);
+
+        const { data, error } = await query.order('name', { ascending: true });
+        if (error) throw error;
+        res.json({ classes: data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.createClass = async (req, res, next) => {
+    if (!ensureAdmin(res)) return;
+    try {
+        const { name, department_code, tutor_id, semester, batch } = req.body;
+        if (!name || !department_code) return res.status(400).json({ error: 'Name and Department are required' });
+
+        const { data, error } = await supabaseAdmin
+            .from('classes')
+            .insert([{ name, department_code, tutor_id: tutor_id || null, semester, batch }])
+            .select();
+
+        if (error) throw error;
+        res.status(201).json({ message: 'Class created', class: data[0] });
+    } catch (error) {
+        next(error);
+    }
+};
+
+exports.deleteClass = async (req, res, next) => {
+    if (!ensureAdmin(res)) return;
+    try {
+        const { id } = req.params;
+        const { error } = await supabaseAdmin.from('classes').delete().eq('id', id);
+        if (error) throw error;
+        res.json({ message: 'Class deleted' });
+    } catch (error) {
+        next(error);
+    }
+};
+
 exports.assignRole = async (req, res, next) => {
     if (!ensureAdmin(res)) return;
     try {
@@ -301,7 +404,6 @@ exports.assignRole = async (req, res, next) => {
             return res.status(400).json({ error: 'User ID and role are required' });
         }
 
-        // If promoting to HOD, demote the current HOD of that department
         if (role === 'HOD' && departmentCode) {
             const { data: { users: allUsers }, error: listErr } = await supabaseAdmin.auth.admin.listUsers();
             if (!listErr) {
@@ -312,7 +414,6 @@ exports.assignRole = async (req, res, next) => {
                 );
 
                 if (currentHOD) {
-                    console.log(`Demoting old HOD: ${currentHOD.email}`);
                     await supabaseAdmin.auth.admin.updateUserById(currentHOD.id, {
                         user_metadata: { ...currentHOD.user_metadata, role: 'STAFF' },
                         app_metadata: { roles: ['STAFF'] }
@@ -322,12 +423,10 @@ exports.assignRole = async (req, res, next) => {
             }
         }
 
-        // Get current user to preserve existing metadata
         const { data: { user }, error: getError } = await supabaseAdmin.auth.admin.getUserById(userId);
         if (getError) throw getError;
 
         const updatedMetadata = { ...user.user_metadata, role };
-        // Remove old 'department' name and only keep 'departmentCode'
         if (departmentCode) {
             updatedMetadata.departmentCode = departmentCode;
             delete updatedMetadata.department;
@@ -335,12 +434,10 @@ exports.assignRole = async (req, res, next) => {
 
         const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
             user_metadata: updatedMetadata,
-            app_metadata: { roles: [role, 'STAFF'] } // Keep STAFF as base role
+            app_metadata: { roles: [role, 'STAFF'] }
         });
 
         if (updateError) throw updateError;
-
-        // Also update the public users table roles
         await supabaseAdmin.from('users').update({ roles: [role, 'STAFF'] }).eq('id', userId);
 
         res.json({ message: `Role ${role} assigned successfully` });
@@ -348,8 +445,6 @@ exports.assignRole = async (req, res, next) => {
         next(error);
     }
 };
-
-
 
 function getOrdinal(n) {
     const s = ["th", "st", "nd", "rd"];
