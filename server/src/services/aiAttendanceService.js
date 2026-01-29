@@ -1,306 +1,1 @@
-const createError = require('http-errors');
-const db = require('../models/db');
-const { logAudit } = require('./auditService');
-
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;
-const HIGH_CONFIDENCE_THRESHOLD = 0.9;
-const TWIN_MARGIN = 0.02; // if top-2 scores within 0.02, flag as possible twins
-const MAX_CLOCK_SKEW_MINUTES = 5; // allowed time difference between device and server
-const MAX_OFFLINE_AGE_HOURS = 24; // offline events older than this will be rejected
-
-function cosineSimilarity(a, b) {
-  if (!a || !b || a.length !== b.length) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (!normA || !normB) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-function parseEncoding(raw) {
-  if (!raw) return null;
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  if (typeof raw === 'object' && Array.isArray(raw.encoding)) {
-    return raw.encoding;
-  }
-  return null;
-}
-
-async function validateDevice(deviceId) {
-  const result = await db.query(
-    `SELECT id, device_code, name, is_active
-       FROM devices
-      WHERE id = $1 AND deleted_at IS NULL`,
-    [deviceId]
-  );
-
-  const device = result.rows[0];
-  if (!device || !device.is_active) {
-    throw createError(401, 'Unknown or inactive device');
-  }
-  return device;
-}
-
-async function logDeviceEvent(deviceId, logType, payload) {
-  await db.query(
-    `INSERT INTO device_logs (device_id, log_type, payload)
-     VALUES ($1, $2, $3)`,
-    [deviceId, logType, payload || null]
-  );
-}
-
-async function findUserByRecognizedId(recognizedUserId) {
-  if (!recognizedUserId) return null;
-
-  // Try student first
-  let result = await db.query('SELECT id, full_name FROM students WHERE id = $1', [
-    recognizedUserId
-  ]);
-  if (result.rowCount > 0) {
-    return { type: 'STUDENT', id: result.rows[0].id, name: result.rows[0].full_name };
-  }
-
-  // Then staff
-  result = await db.query('SELECT id, full_name FROM staff WHERE id = $1', [
-    recognizedUserId
-  ]);
-  if (result.rowCount > 0) {
-    return { type: 'STAFF', id: result.rows[0].id, name: result.rows[0].full_name };
-  }
-
-  return null;
-}
-
-async function findBestMatchByEmbedding(faceEmbedding) {
-  const embeddingVector = parseEncoding(faceEmbedding);
-  if (!embeddingVector) {
-    return { match: null, needsReview: true, reason: 'INVALID_EMBEDDING' };
-  }
-
-  const result = await db.query(
-    `SELECT id, student_id, staff_id, encoding
-       FROM face_encodings
-      WHERE is_active = TRUE`
-  );
-
-  if (result.rowCount === 0) {
-    return { match: null, needsReview: true, reason: 'NO_ENCODINGS' };
-  }
-
-  const scored = [];
-  result.rows.forEach((row) => {
-    const stored = parseEncoding(row.encoding);
-    if (!stored) return;
-    const score = cosineSimilarity(embeddingVector, stored);
-    scored.push({ row, score });
-  });
-
-  if (!scored.length) {
-    return { match: null, needsReview: true, reason: 'NO_VALID_ENCODINGS' };
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  const best = scored[0];
-  const second = scored[1];
-
-  const needsReviewReasons = [];
-  let needsReview = false;
-
-  if (best.score < DEFAULT_CONFIDENCE_THRESHOLD) {
-    needsReview = true;
-    needsReviewReasons.push('LOW_CONFIDENCE');
-  }
-
-  if (second && Math.abs(best.score - second.score) <= TWIN_MARGIN) {
-    needsReview = true;
-    needsReviewReasons.push('POSSIBLE_TWINS');
-  }
-
-  const ownerType = best.row.student_id ? 'STUDENT' : 'STAFF';
-  const ownerId = best.row.student_id || best.row.staff_id;
-
-  return {
-    match: {
-      type: ownerType,
-      id: ownerId,
-      faceEncodingId: best.row.id,
-      confidence: best.score
-    },
-    needsReview,
-    reason: needsReviewReasons.join('|') || null
-  };
-}
-
-async function preventProxyAttendance({ userType, userId, timestamp, deviceId }) {
-  // Basic proxy prevention: flag if there is already a PRESENT record today
-  // for the same user but from a different device within a short time window.
-  const date = new Date(timestamp);
-  const day = date.toISOString().slice(0, 10); // YYYY-MM-DD
-
-  const column = userType === 'STUDENT' ? 'student_id' : 'staff_id';
-
-  const result = await db.query(
-    `SELECT id, device_id, recorded_at
-       FROM attendance
-      WHERE ${column} = $1
-        AND date = $2::date
-        AND status = 'PRESENT'
-      ORDER BY recorded_at DESC
-      LIMIT 1`,
-    [userId, day]
-  );
-
-  if (result.rowCount === 0) {
-    return { needsReview: false, reason: null };
-  }
-
-  const last = result.rows[0];
-  const lastTime = new Date(last.recorded_at).getTime();
-  const currentTime = date.getTime();
-  const diffMinutes = Math.abs(currentTime - lastTime) / (1000 * 60);
-
-  if (diffMinutes <= 5 && last.device_id !== deviceId) {
-    return { needsReview: true, reason: 'POSSIBLE_PROXY_ATTENDANCE' };
-  }
-
-  return { needsReview: false, reason: null };
-}
-
-async function recordAttendanceEvent({
-  device,
-  timestamp,
-  recognizedUserId,
-  faceEmbedding,
-  rawPayload,
-  reqMeta
-}) {
-  const ts = timestamp ? new Date(timestamp) : new Date();
-
-  if (Number.isNaN(ts.getTime())) {
-    throw createError(400, 'Invalid timestamp');
-  }
-
-  const now = new Date();
-  const diffMinutes = Math.abs(now.getTime() - ts.getTime()) / (1000 * 60);
-  const diffHours = diffMinutes / 60;
-
-  if (diffMinutes > MAX_CLOCK_SKEW_MINUTES && !timestamp) {
-    // Should not happen because we derived ts from now, but added for completeness
-    throw createError(400, 'Timestamp skew is too large');
-  }
-
-  if (timestamp && diffHours > MAX_OFFLINE_AGE_HOURS) {
-    throw createError(400, 'Offline attendance event is too old to be accepted');
-  }
-
-  await logDeviceEvent(device.id, 'ATTENDANCE_EVENT', rawPayload);
-
-  let userMatch = null;
-  let confidence = null;
-  let needsReview = false;
-  const reviewReasons = [];
-
-  if (recognizedUserId) {
-    userMatch = await findUserByRecognizedId(recognizedUserId);
-    if (!userMatch) {
-      needsReview = true;
-      reviewReasons.push('UNKNOWN_RECOGNIZED_ID');
-    } else {
-      confidence = 1.0;
-    }
-  } else if (faceEmbedding) {
-    const embeddingResult = await findBestMatchByEmbedding(faceEmbedding);
-    if (embeddingResult.match) {
-      userMatch = embeddingResult.match;
-      confidence = embeddingResult.match.confidence;
-    }
-    if (embeddingResult.needsReview) {
-      needsReview = true;
-      if (embeddingResult.reason) reviewReasons.push(embeddingResult.reason);
-    }
-  } else {
-    throw createError(400, 'Either recognized_user_id or face_embedding is required');
-  }
-
-  if (!userMatch) {
-    await logAudit({
-      actorUserId: null,
-      actorRoles: null,
-      action: 'ATTENDANCE_NO_MATCH',
-      entityType: 'DEVICE',
-      entityId: device.id,
-      metadata: { timestamp: ts, reasons: reviewReasons },
-      ipAddress: reqMeta.ip,
-      userAgent: reqMeta.userAgent
-    });
-
-    throw createError(422, 'No matching user for face embedding');
-  }
-
-  const proxyCheck = await preventProxyAttendance({
-    userType: userMatch.type,
-    userId: userMatch.id,
-    timestamp: ts,
-    deviceId: device.id
-  });
-
-  if (proxyCheck.needsReview) {
-    needsReview = true;
-    reviewReasons.push(proxyCheck.reason);
-  }
-
-  const column = userMatch.type === 'STUDENT' ? 'student_id' : 'staff_id';
-
-  const insertResult = await db.query(
-    `INSERT INTO attendance (${column}, subject_id, staff_id, device_id, date, status, session, recorded_at, source, confidence, needs_review)
-     VALUES ($1, NULL, NULL, $2, $3::date, 'PRESENT', NULL, $3, 'DEVICE', $4, $5)
-     RETURNING id`,
-    [userMatch.id, device.id, ts.toISOString(), confidence, needsReview]
-  );
-
-  const attendanceId = insertResult.rows[0].id;
-
-  await logAudit({
-    actorUserId: null,
-    actorRoles: null,
-    action: 'ATTENDANCE_RECORDED',
-    entityType: 'ATTENDANCE',
-    entityId: attendanceId,
-    metadata: {
-      userType: userMatch.type,
-      userId: userMatch.id,
-      deviceId: device.id,
-      confidence,
-      needsReview,
-      reviewReasons
-    },
-    ipAddress: reqMeta.ip,
-    userAgent: reqMeta.userAgent
-  });
-
-  return {
-    attendanceId,
-    user: userMatch,
-    confidence,
-    needsReview,
-    reviewReasons
-  };
-}
-
-module.exports = {
-  recordAttendanceEvent
-};
-
+const createError = require('http-errors');const db = require('../models/db');const { logAudit } = require('./auditService');const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;const HIGH_CONFIDENCE_THRESHOLD = 0.9;const TWIN_MARGIN = 0.02; const MAX_CLOCK_SKEW_MINUTES = 5; const MAX_OFFLINE_AGE_HOURS = 24; function cosineSimilarity(a, b) {  if (!a || !b || a.length !== b.length) return 0;  let dot = 0;  let normA = 0;  let normB = 0;  for (let i = 0; i < a.length; i += 1) {    dot += a[i] * b[i];    normA += a[i] * a[i];    normB += b[i] * b[i];  }  if (!normA || !normB) return 0;  return dot / (Math.sqrt(normA) * Math.sqrt(normB));}function parseEncoding(raw) {  if (!raw) return null;  if (Array.isArray(raw)) return raw;  if (typeof raw === 'string') {    try {      const parsed = JSON.parse(raw);      return Array.isArray(parsed) ? parsed : null;    } catch (e) {      return null;    }  }  if (typeof raw === 'object' && Array.isArray(raw.encoding)) {    return raw.encoding;  }  return null;}async function validateDevice(deviceId) {  const result = await db.query(    `SELECT id, device_code, name, is_active       FROM devices      WHERE id = $1 AND deleted_at IS NULL`,    [deviceId]  );  const device = result.rows[0];  if (!device || !device.is_active) {    throw createError(401, 'Unknown or inactive device');  }  return device;}async function logDeviceEvent(deviceId, logType, payload) {  await db.query(    `INSERT INTO device_logs (device_id, log_type, payload)     VALUES ($1, $2, $3)`,    [deviceId, logType, payload || null]  );}async function findUserByRecognizedId(recognizedUserId) {  if (!recognizedUserId) return null;  let result = await db.query('SELECT id, full_name FROM students WHERE id = $1', [    recognizedUserId  ]);  if (result.rowCount > 0) {    return { type: 'STUDENT', id: result.rows[0].id, name: result.rows[0].full_name };  }  result = await db.query('SELECT id, full_name FROM staff WHERE id = $1', [    recognizedUserId  ]);  if (result.rowCount > 0) {    return { type: 'STAFF', id: result.rows[0].id, name: result.rows[0].full_name };  }  return null;}async function findBestMatchByEmbedding(faceEmbedding) {  const embeddingVector = parseEncoding(faceEmbedding);  if (!embeddingVector) {    return { match: null, needsReview: true, reason: 'INVALID_EMBEDDING' };  }  const result = await db.query(    `SELECT id, student_id, staff_id, encoding       FROM face_encodings      WHERE is_active = TRUE`  );  if (result.rowCount === 0) {    return { match: null, needsReview: true, reason: 'NO_ENCODINGS' };  }  const scored = [];  result.rows.forEach((row) => {    const stored = parseEncoding(row.encoding);    if (!stored) return;    const score = cosineSimilarity(embeddingVector, stored);    scored.push({ row, score });  });  if (!scored.length) {    return { match: null, needsReview: true, reason: 'NO_VALID_ENCODINGS' };  }  scored.sort((a, b) => b.score - a.score);  const best = scored[0];  const second = scored[1];  const needsReviewReasons = [];  let needsReview = false;  if (best.score < DEFAULT_CONFIDENCE_THRESHOLD) {    needsReview = true;    needsReviewReasons.push('LOW_CONFIDENCE');  }  if (second && Math.abs(best.score - second.score) <= TWIN_MARGIN) {    needsReview = true;    needsReviewReasons.push('POSSIBLE_TWINS');  }  const ownerType = best.row.student_id ? 'STUDENT' : 'STAFF';  const ownerId = best.row.student_id || best.row.staff_id;  return {    match: {      type: ownerType,      id: ownerId,      faceEncodingId: best.row.id,      confidence: best.score    },    needsReview,    reason: needsReviewReasons.join('|') || null  };}async function preventProxyAttendance({ userType, userId, timestamp, deviceId }) {  const date = new Date(timestamp);  const day = date.toISOString().slice(0, 10);   const column = userType === 'STUDENT' ? 'student_id' : 'staff_id';  const result = await db.query(    `SELECT id, device_id, recorded_at       FROM attendance      WHERE ${column} = $1        AND date = $2::date        AND status = 'PRESENT'      ORDER BY recorded_at DESC      LIMIT 1`,    [userId, day]  );  if (result.rowCount === 0) {    return { needsReview: false, reason: null };  }  const last = result.rows[0];  const lastTime = new Date(last.recorded_at).getTime();  const currentTime = date.getTime();  const diffMinutes = Math.abs(currentTime - lastTime) / (1000 * 60);  if (diffMinutes <= 5 && last.device_id !== deviceId) {    return { needsReview: true, reason: 'POSSIBLE_PROXY_ATTENDANCE' };  }  return { needsReview: false, reason: null };}async function recordAttendanceEvent({  device,  timestamp,  recognizedUserId,  faceEmbedding,  rawPayload,  reqMeta}) {  const ts = timestamp ? new Date(timestamp) : new Date();  if (Number.isNaN(ts.getTime())) {    throw createError(400, 'Invalid timestamp');  }  const now = new Date();  const diffMinutes = Math.abs(now.getTime() - ts.getTime()) / (1000 * 60);  const diffHours = diffMinutes / 60;  if (diffMinutes > MAX_CLOCK_SKEW_MINUTES && !timestamp) {    throw createError(400, 'Timestamp skew is too large');  }  if (timestamp && diffHours > MAX_OFFLINE_AGE_HOURS) {    throw createError(400, 'Offline attendance event is too old to be accepted');  }  await logDeviceEvent(device.id, 'ATTENDANCE_EVENT', rawPayload);  let userMatch = null;  let confidence = null;  let needsReview = false;  const reviewReasons = [];  if (recognizedUserId) {    userMatch = await findUserByRecognizedId(recognizedUserId);    if (!userMatch) {      needsReview = true;      reviewReasons.push('UNKNOWN_RECOGNIZED_ID');    } else {      confidence = 1.0;    }  } else if (faceEmbedding) {    const embeddingResult = await findBestMatchByEmbedding(faceEmbedding);    if (embeddingResult.match) {      userMatch = embeddingResult.match;      confidence = embeddingResult.match.confidence;    }    if (embeddingResult.needsReview) {      needsReview = true;      if (embeddingResult.reason) reviewReasons.push(embeddingResult.reason);    }  } else {    throw createError(400, 'Either recognized_user_id or face_embedding is required');  }  if (!userMatch) {    await logAudit({      actorUserId: null,      actorRoles: null,      action: 'ATTENDANCE_NO_MATCH',      entityType: 'DEVICE',      entityId: device.id,      metadata: { timestamp: ts, reasons: reviewReasons },      ipAddress: reqMeta.ip,      userAgent: reqMeta.userAgent    });    throw createError(422, 'No matching user for face embedding');  }  const proxyCheck = await preventProxyAttendance({    userType: userMatch.type,    userId: userMatch.id,    timestamp: ts,    deviceId: device.id  });  if (proxyCheck.needsReview) {    needsReview = true;    reviewReasons.push(proxyCheck.reason);  }  const column = userMatch.type === 'STUDENT' ? 'student_id' : 'staff_id';  const insertResult = await db.query(    `INSERT INTO attendance (${column}, subject_id, staff_id, device_id, date, status, session, recorded_at, source, confidence, needs_review)     VALUES ($1, NULL, NULL, $2, $3::date, 'PRESENT', NULL, $3, 'DEVICE', $4, $5)     RETURNING id`,    [userMatch.id, device.id, ts.toISOString(), confidence, needsReview]  );  const attendanceId = insertResult.rows[0].id;  await logAudit({    actorUserId: null,    actorRoles: null,    action: 'ATTENDANCE_RECORDED',    entityType: 'ATTENDANCE',    entityId: attendanceId,    metadata: {      userType: userMatch.type,      userId: userMatch.id,      deviceId: device.id,      confidence,      needsReview,      reviewReasons    },    ipAddress: reqMeta.ip,    userAgent: reqMeta.userAgent  });  return {    attendanceId,    user: userMatch,    confidence,    needsReview,    reviewReasons  };}module.exports = {  recordAttendanceEvent};

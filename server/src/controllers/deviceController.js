@@ -1,87 +1,1 @@
-const createError = require('http-errors');
-const bcrypt = require('bcryptjs');
-const db = require('../models/db');
-const { logAudit } = require('../services/auditService');
-
-// Example: only Admin (SUPER_ADMIN) or IT_ADMIN can register hardware devices
-async function registerDevice(req, res, next) {
-  try {
-    const { deviceCode, name, location, ipAddress, allowedIp } = req.body;
-
-    const existing = await db.query(
-      'SELECT id FROM devices WHERE device_code = $1 AND deleted_at IS NULL',
-      [deviceCode]
-    );
-    if (existing.rowCount > 0) {
-      throw createError(400, 'Device code already registered');
-    }
-
-    // Generate an API key for the device and store its hash only
-    const rawApiKey = `${deviceCode}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
-    const apiKeyHash = await bcrypt.hash(rawApiKey, 10);
-
-    const result = await db.query(
-      `INSERT INTO devices (device_code, name, location, ip_address, api_key_hash, allowed_ip)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, device_code, name, location, ip_address`,
-      [deviceCode, name, location || null, ipAddress || null, apiKeyHash, allowedIp || null]
-    );
-
-    const device = result.rows[0];
-
-    await logAudit({
-      actorUserId: req.user.sub,
-      actorRoles: req.user.roles,
-      action: 'DEVICE_REGISTERED',
-      entityType: 'DEVICE',
-      entityId: device.id,
-      metadata: { deviceCode, location, allowedIp: allowedIp || null },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
-
-    // Return the raw API key only once; client (admin) must record it securely
-    return res.status(201).json({
-      device,
-      apiKey: rawApiKey
-    });
-  } catch (err) {
-    return next(err);
-  }
-}
-
-// Device health check endpoint (called by Raspberry Pi)
-async function reportHealth(req, res, next) {
-  try {
-    const { status } = req.body;
-
-    await db.query(
-      `UPDATE devices
-          SET last_seen_at = NOW(),
-              last_health_status = $2
-        WHERE id = $1`,
-      [req.device.id, status || 'OK']
-    );
-
-    await logAudit({
-      actorUserId: null,
-      actorRoles: null,
-      action: 'DEVICE_HEALTH',
-      entityType: 'DEVICE',
-      entityId: req.device.id,
-      metadata: { status: status || 'OK' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
-
-    return res.json({ success: true });
-  } catch (err) {
-    return next(err);
-  }
-}
-
-module.exports = {
-  registerDevice,
-  reportHealth
-};
-
+const createError = require('http-errors');const bcrypt = require('bcryptjs');const db = require('../models/db');const { logAudit } = require('../services/auditService');async function registerDevice(req, res, next) {  try {    const { deviceCode, name, location, ipAddress, allowedIp } = req.body;    const existing = await db.query(      'SELECT id FROM devices WHERE device_code = $1 AND deleted_at IS NULL',      [deviceCode]    );    if (existing.rowCount > 0) {      throw createError(400, 'Device code already registered');    }    const rawApiKey = `${deviceCode}.${Date.now()}.${Math.random().toString(36).slice(2)}`;    const apiKeyHash = await bcrypt.hash(rawApiKey, 10);    const result = await db.query(      `INSERT INTO devices (device_code, name, location, ip_address, api_key_hash, allowed_ip)       VALUES ($1, $2, $3, $4, $5, $6)       RETURNING id, device_code, name, location, ip_address`,      [deviceCode, name, location || null, ipAddress || null, apiKeyHash, allowedIp || null]    );    const device = result.rows[0];    await logAudit({      actorUserId: req.user.sub,      actorRoles: req.user.roles,      action: 'DEVICE_REGISTERED',      entityType: 'DEVICE',      entityId: device.id,      metadata: { deviceCode, location, allowedIp: allowedIp || null },      ipAddress: req.ip,      userAgent: req.headers['user-agent']    });    return res.status(201).json({      device,      apiKey: rawApiKey    });  } catch (err) {    return next(err);  }}async function reportHealth(req, res, next) {  try {    const { status } = req.body;    await db.query(      `UPDATE devices          SET last_seen_at = NOW(),              last_health_status = $2        WHERE id = $1`,      [req.device.id, status || 'OK']    );    await logAudit({      actorUserId: null,      actorRoles: null,      action: 'DEVICE_HEALTH',      entityType: 'DEVICE',      entityId: req.device.id,      metadata: { status: status || 'OK' },      ipAddress: req.ip,      userAgent: req.headers['user-agent']    });    return res.json({ success: true });  } catch (err) {    return next(err);  }}module.exports = {  registerDevice,  reportHealth};

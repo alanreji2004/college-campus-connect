@@ -1,52 +1,1 @@
-import React from 'react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-
-const data = [
-  { month: 'Jan', users: 120 },
-  { month: 'Feb', users: 180 },
-  { month: 'Mar', users: 260 },
-  { month: 'Apr', users: 320 },
-  { month: 'May', users: 410 }
-];
-
-export default function SuperAdminDashboard() {
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-slate-900">Super Admin Overview</h1>
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">Total Users</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">2,340</div>
-        </div>
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">Active Devices</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">14</div>
-        </div>
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">Today&apos;s Attendance</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">94.3%</div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-semibold text-slate-900">User Growth</div>
-            <div className="text-xs text-slate-500">Last 5 months</div>
-          </div>
-        </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="users" stroke="#2563eb" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+import React from 'react';import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';const data = [  { month: 'Jan', users: 120 },  { month: 'Feb', users: 180 },  { month: 'Mar', users: 260 },  { month: 'Apr', users: 320 },  { month: 'May', users: 410 }];export default function SuperAdminDashboard() {  return (    <div className="space-y-6">      <h1 className="text-xl font-semibold text-slate-900">Super Admin Overview</h1>      <div className="grid gap-4 md:grid-cols-3">        <div className="card">          <div className="text-xs font-medium text-slate-500">Total Users</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">2,340</div>        </div>        <div className="card">          <div className="text-xs font-medium text-slate-500">Active Devices</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">14</div>        </div>        <div className="card">          <div className="text-xs font-medium text-slate-500">Today&apos;s Attendance</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">94.3%</div>        </div>      </div>      <div className="card">        <div className="mb-3 flex items-center justify-between">          <div>            <div className="text-sm font-semibold text-slate-900">User Growth</div>            <div className="text-xs text-slate-500">Last 5 months</div>          </div>        </div>        <div className="h-64">          <ResponsiveContainer width="100%" height="100%">            <LineChart data={data} margin={{ left: -20 }}>              <CartesianGrid strokeDasharray="3 3" vertical={false} />              <XAxis dataKey="month" />              <YAxis />              <Tooltip />              <Line type="monotone" dataKey="users" stroke="#2563eb" strokeWidth={2} dot={false} />            </LineChart>          </ResponsiveContainer>        </div>      </div>    </div>  );}

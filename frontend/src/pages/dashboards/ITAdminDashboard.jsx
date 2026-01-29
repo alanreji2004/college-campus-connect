@@ -1,24 +1,1 @@
-import React from 'react';
-
-export default function ITAdminDashboard() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">IT Admin</h1>
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">Active Users</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">1,842</div>
-        </div>
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">Devices Online</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">14 / 16</div>
-        </div>
-        <div className="card">
-          <div className="text-xs font-medium text-slate-500">API Errors (24h)</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">12</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+import React from 'react';export default function ITAdminDashboard() {  return (    <div className="space-y-4">      <h1 className="text-xl font-semibold text-slate-900">IT Admin</h1>      <div className="grid gap-4 md:grid-cols-3">        <div className="card">          <div className="text-xs font-medium text-slate-500">Active Users</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">1,842</div>        </div>        <div className="card">          <div className="text-xs font-medium text-slate-500">Devices Online</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">14 / 16</div>        </div>        <div className="card">          <div className="text-xs font-medium text-slate-500">API Errors (24h)</div>          <div className="mt-2 text-2xl font-semibold text-slate-900">12</div>        </div>      </div>    </div>  );}

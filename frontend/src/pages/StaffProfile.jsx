@@ -1,13 +1,1 @@
-import React from 'react';
-import { useParams } from 'react-router-dom';
-
-export default function StaffProfile() {
-  const { id } = useParams();
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">Staff Profile</h1>
-      <div className="card text-xs text-slate-500">Profile details for staff {id}.</div>
-    </div>
-  );
-}
-
+import React from 'react';import { useParams } from 'react-router-dom';export default function StaffProfile() {  const { id } = useParams();  return (    <div className="space-y-4">      <h1 className="text-xl font-semibold text-slate-900">Staff Profile</h1>      <div className="card text-xs text-slate-500">Profile details for staff {id}.</div>    </div>  );}

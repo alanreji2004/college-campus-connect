@@ -1,234 +1,1 @@
-const createError = require('http-errors');
-const db = require('../models/db');
-const { logAudit } = require('./auditService');
-
-const MANUAL_WINDOW_MINUTES =
-  Number.parseInt(process.env.MANUAL_ATTENDANCE_WINDOW_MINUTES || '120', 10) || 120;
-
-async function ensureWithinWindow(date, session) {
-  const today = new Date();
-  const reqDate = new Date(date);
-  // Only enforce simple rule: manual attendance must be for today
-  if (reqDate.toDateString() !== today.toDateString()) {
-    throw createError(400, 'Manual attendance can only be submitted for today');
-  }
-
-  // Optional: if session has time, more granular rules can be added later.
-  return { ok: true };
-}
-
-async function markSubjectAttendance({
-  staffUser,
-  subjectId,
-  date,
-  session,
-  entries,
-  source = 'MANUAL'
-}) {
-  if (!entries || !entries.length) {
-    throw createError(400, 'No attendance entries provided');
-  }
-
-  await ensureWithinWindow(date, session);
-
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-    const results = [];
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const entry of entries) {
-      const { studentId, status } = entry;
-
-      // Check for existing attendance to prevent duplicates
-      // eslint-disable-next-line no-await-in-loop
-      const existing = await client.query(
-        `SELECT id, status
-           FROM attendance
-          WHERE student_id = $1
-            AND subject_id = $2
-            AND date = $3::date
-            AND COALESCE(session, 'DEFAULT') = COALESCE($4, 'DEFAULT')`,
-        [studentId, subjectId, date, session]
-      );
-
-      if (existing.rowCount > 0) {
-        // Duplicate – do not overwrite automatically, require correction flow
-        results.push({
-          studentId,
-          status,
-          skipped: true,
-          reason: 'DUPLICATE_EXISTS'
-        });
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-
-      // eslint-disable-next-line no-await-in-loop
-      const insert = await client.query(
-        `INSERT INTO attendance
-           (student_id, staff_id, subject_id, date, status, session, recorded_at, source, needs_review)
-         VALUES ($1, $2, $3, $4::date, $5, $6, NOW(), $7, FALSE)
-         RETURNING id`,
-        [studentId, staffUser.staff_id || null, subjectId, date, status, session || null, source]
-      );
-
-      const attendanceId = insert.rows[0].id;
-      results.push({
-        studentId,
-        status,
-        attendanceId
-      });
-    }
-
-    await client.query('COMMIT');
-
-    await logAudit({
-      actorUserId: staffUser.id,
-      actorRoles: staffUser.roles,
-      action: 'ATTENDANCE_MARKED_MANUAL',
-      entityType: 'SUBJECT',
-      entityId: subjectId,
-      metadata: { date, session, results },
-      ipAddress: null,
-      userAgent: null
-    });
-
-    return results;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-async function requestManualOverride({
-  requesterUser,
-  attendanceId,
-  studentId,
-  subjectId,
-  requestedStatus,
-  reason
-}) {
-  if (!studentId && !attendanceId) {
-    throw createError(400, 'Either attendanceId or studentId is required');
-  }
-
-  const result = await db.query(
-    `INSERT INTO attendance_corrections
-       (attendance_id, student_id, subject_id, requested_by, requested_by_role, requested_status, reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING *`,
-    [
-      attendanceId || null,
-      studentId || null,
-      subjectId || null,
-      requesterUser.id,
-      (requesterUser.roles || [])[0] || 'UNKNOWN',
-      requestedStatus,
-      reason
-    ]
-  );
-
-  const correction = result.rows[0];
-
-  await logAudit({
-    actorUserId: requesterUser.id,
-    actorRoles: requesterUser.roles,
-    action: 'ATTENDANCE_CORRECTION_REQUESTED',
-    entityType: 'ATTENDANCE_CORRECTION',
-    entityId: correction.id,
-    metadata: { attendanceId, studentId, subjectId, requestedStatus },
-    ipAddress: null,
-    userAgent: null
-  });
-
-  return correction;
-}
-
-async function applyCorrection({ approverUser, correctionId }) {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const result = await client.query(
-      `SELECT *
-         FROM attendance_corrections
-        WHERE id = $1
-          AND status = 'PENDING'
-        FOR UPDATE`,
-      [correctionId]
-    );
-
-    if (result.rowCount === 0) {
-      throw createError(404, 'Pending correction not found');
-    }
-
-    const correction = result.rows[0];
-
-    let attendanceId = correction.attendance_id;
-
-    if (attendanceId) {
-      await client.query(
-        `UPDATE attendance
-            SET status = $2,
-                needs_review = FALSE,
-                updated_at = NOW()
-          WHERE id = $1`,
-        [attendanceId, correction.requested_status]
-      );
-    } else if (correction.student_id && correction.subject_id) {
-      const insert = await client.query(
-        `INSERT INTO attendance
-           (student_id, subject_id, date, status, session, recorded_at, source, needs_review)
-         VALUES ($1, $2, NOW()::date, $3, NULL, NOW(), 'MANUAL_OVERRIDE', FALSE)
-         RETURNING id`,
-        [correction.student_id, correction.subject_id, correction.requested_status]
-      );
-      attendanceId = insert.rows[0].id;
-    } else {
-      throw createError(400, 'Correction does not have enough context to apply');
-    }
-
-    const update = await client.query(
-      `UPDATE attendance_corrections
-          SET status = 'APPROVED',
-              approved_by = $2,
-              approved_at = NOW(),
-              updated_at = NOW()
-        WHERE id = $1
-        RETURNING *`,
-      [correctionId, approverUser.id]
-    );
-
-    const finalCorrection = update.rows[0];
-
-    await client.query('COMMIT');
-
-    await logAudit({
-      actorUserId: approverUser.id,
-      actorRoles: approverUser.roles,
-      action: 'ATTENDANCE_CORRECTION_APPROVED',
-      entityType: 'ATTENDANCE_CORRECTION',
-      entityId: correctionId,
-      metadata: { attendanceId },
-      ipAddress: null,
-      userAgent: null
-    });
-
-    return finalCorrection;
-  } catch (err) {
-    await db.pool.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-module.exports = {
-  markSubjectAttendance,
-  requestManualOverride,
-  applyCorrection
-};
-
+const createError = require('http-errors');const db = require('../models/db');const { logAudit } = require('./auditService');const MANUAL_WINDOW_MINUTES =  Number.parseInt(process.env.MANUAL_ATTENDANCE_WINDOW_MINUTES || '120', 10) || 120;async function ensureWithinWindow(date, session) {  const today = new Date();  const reqDate = new Date(date);  if (reqDate.toDateString() !== today.toDateString()) {    throw createError(400, 'Manual attendance can only be submitted for today');  }  return { ok: true };}async function markSubjectAttendance({  staffUser,  subjectId,  date,  session,  entries,  source = 'MANUAL'}) {  if (!entries || !entries.length) {    throw createError(400, 'No attendance entries provided');  }  await ensureWithinWindow(date, session);  const client = await db.pool.connect();  try {    await client.query('BEGIN');    const results = [];    for (const entry of entries) {      const { studentId, status } = entry;      const existing = await client.query(        `SELECT id, status           FROM attendance          WHERE student_id = $1            AND subject_id = $2            AND date = $3::date            AND COALESCE(session, 'DEFAULT') = COALESCE($4, 'DEFAULT')`,        [studentId, subjectId, date, session]      );      if (existing.rowCount > 0) {        results.push({          studentId,          status,          skipped: true,          reason: 'DUPLICATE_EXISTS'        });        continue;      }      const insert = await client.query(        `INSERT INTO attendance           (student_id, staff_id, subject_id, date, status, session, recorded_at, source, needs_review)         VALUES ($1, $2, $3, $4::date, $5, $6, NOW(), $7, FALSE)         RETURNING id`,        [studentId, staffUser.staff_id || null, subjectId, date, status, session || null, source]      );      const attendanceId = insert.rows[0].id;      results.push({        studentId,        status,        attendanceId      });    }    await client.query('COMMIT');    await logAudit({      actorUserId: staffUser.id,      actorRoles: staffUser.roles,      action: 'ATTENDANCE_MARKED_MANUAL',      entityType: 'SUBJECT',      entityId: subjectId,      metadata: { date, session, results },      ipAddress: null,      userAgent: null    });    return results;  } catch (err) {    await client.query('ROLLBACK');    throw err;  } finally {    client.release();  }}async function requestManualOverride({  requesterUser,  attendanceId,  studentId,  subjectId,  requestedStatus,  reason}) {  if (!studentId && !attendanceId) {    throw createError(400, 'Either attendanceId or studentId is required');  }  const result = await db.query(    `INSERT INTO attendance_corrections       (attendance_id, student_id, subject_id, requested_by, requested_by_role, requested_status, reason)     VALUES ($1, $2, $3, $4, $5, $6, $7)     RETURNING *`,    [      attendanceId || null,      studentId || null,      subjectId || null,      requesterUser.id,      (requesterUser.roles || [])[0] || 'UNKNOWN',      requestedStatus,      reason    ]  );  const correction = result.rows[0];  await logAudit({    actorUserId: requesterUser.id,    actorRoles: requesterUser.roles,    action: 'ATTENDANCE_CORRECTION_REQUESTED',    entityType: 'ATTENDANCE_CORRECTION',    entityId: correction.id,    metadata: { attendanceId, studentId, subjectId, requestedStatus },    ipAddress: null,    userAgent: null  });  return correction;}async function applyCorrection({ approverUser, correctionId }) {  const client = await db.pool.connect();  try {    await client.query('BEGIN');    const result = await client.query(      `SELECT *         FROM attendance_corrections        WHERE id = $1          AND status = 'PENDING'        FOR UPDATE`,      [correctionId]    );    if (result.rowCount === 0) {      throw createError(404, 'Pending correction not found');    }    const correction = result.rows[0];    let attendanceId = correction.attendance_id;    if (attendanceId) {      await client.query(        `UPDATE attendance            SET status = $2,                needs_review = FALSE,                updated_at = NOW()          WHERE id = $1`,        [attendanceId, correction.requested_status]      );    } else if (correction.student_id && correction.subject_id) {      const insert = await client.query(        `INSERT INTO attendance           (student_id, subject_id, date, status, session, recorded_at, source, needs_review)         VALUES ($1, $2, NOW()::date, $3, NULL, NOW(), 'MANUAL_OVERRIDE', FALSE)         RETURNING id`,        [correction.student_id, correction.subject_id, correction.requested_status]      );      attendanceId = insert.rows[0].id;    } else {      throw createError(400, 'Correction does not have enough context to apply');    }    const update = await client.query(      `UPDATE attendance_corrections          SET status = 'APPROVED',              approved_by = $2,              approved_at = NOW(),              updated_at = NOW()        WHERE id = $1        RETURNING *`,      [correctionId, approverUser.id]    );    const finalCorrection = update.rows[0];    await client.query('COMMIT');    await logAudit({      actorUserId: approverUser.id,      actorRoles: approverUser.roles,      action: 'ATTENDANCE_CORRECTION_APPROVED',      entityType: 'ATTENDANCE_CORRECTION',      entityId: correctionId,      metadata: { attendanceId },      ipAddress: null,      userAgent: null    });    return finalCorrection;  } catch (err) {    await db.pool.query('ROLLBACK');    throw err;  } finally {    client.release();  }}module.exports = {  markSubjectAttendance,  requestManualOverride,  applyCorrection};
