@@ -338,6 +338,7 @@ function AddStudentTab({ departments, staffList }) {
       });
       if (res.ok) {
         alert('Class created successfully');
+        e.target.reset();
         fetchClasses(selectedDept.code);
       } else {
         const data = await res.json();
@@ -345,6 +346,24 @@ function AddStudentTab({ departments, staffList }) {
       }
     } catch (err) {
       alert('Failed to create class');
+    }
+  };
+
+  const handleDeleteClass = async (classId, className) => {
+    if (!window.confirm(`Are you sure you want to delete class ${className}? All student enrollments for this class will be cleared.`)) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/admin/classes/${classId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        alert('Class deleted successfully');
+        fetchClasses(selectedDept.code);
+      } else {
+        const data = await res.json();
+        alert('Error: ' + data.error);
+      }
+    } catch (err) {
+      alert('Failed to delete class');
     }
   };
 
@@ -480,12 +499,20 @@ function AddStudentTab({ departments, staffList }) {
             <h3 className="text-lg font-bold text-slate-900">Existing Classes</h3>
             <div className="grid gap-4">
               {classes.map(cls => (
-                <div key={cls.id} onClick={() => { setSelectedClass(cls); fetchClassStudents(cls.id); setView('management'); }} className="cursor-pointer flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 hover:border-primary-400 transition-all">
-                  <div>
-                    <div className="font-bold text-slate-900">{cls.name}</div>
+                <div key={cls.id} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 hover:border-primary-400 transition-all">
+                  <div onClick={() => { setSelectedClass(cls); fetchClassStudents(cls.id); setView('management'); }} className="flex-1 cursor-pointer">
+                    <div className="font-bold text-slate-900">S{cls.semester} - {cls.name}</div>
                     <div className="text-xs text-slate-500">Tutor: {cls.tutor?.full_name || 'Not assigned'}</div>
                   </div>
-                  <ChevronRight size={18} className="text-slate-400" />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteClass(cls.id, cls.name); }}
+                      className="p-2 text-slate-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                    <ChevronRight size={18} className="text-slate-400" />
+                  </div>
                 </div>
               ))}
               {classes.length === 0 && <p className="text-center py-10 text-slate-400 italic">No classes found in this department.</p>}

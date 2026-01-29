@@ -35,14 +35,12 @@ exports.createUser = async (req, res, next) => {
             return res.status(400).json({ error: 'Email and role are required' });
         }
 
-        if (!password && metadata?.dob) {
+        if (!password && metadata?.dob && metadata.dob.includes('-')) {
             const [y, m, d] = metadata.dob.split('-');
             password = `${d}${m}${y}`;
         }
 
-        if (!password) {
-            password = 'Campus@123';
-        }
+        if (!password) password = 'Campus@123';
 
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
             email,
@@ -62,26 +60,21 @@ exports.createUser = async (req, res, next) => {
         }
 
         const userId = authData.user.id;
-        const { error: dbError } = await supabaseAdmin
-            .from('users')
-            .update({ roles: [role] })
-            .eq('id', userId);
+        await supabaseAdmin.from('users').update({ roles: [role] }).eq('id', userId);
 
-        if (dbError) console.error('DB Update Error:', dbError);
-
-        if (role === 'STUDENT' && metadata.class_id) {
+        if (role === 'STUDENT') {
             await supabaseAdmin.from('students').insert([{
                 user_id: userId,
-                admission_number: metadata.admissionNo || `ENR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                admission_number: metadata.admissionNo || `ENR-${Date.now()}`,
                 department: metadata.departmentCode,
                 class_id: metadata.class_id
             }]);
-        } else if (role === 'STAFF') {
+        } else if (role !== 'SUPER_ADMIN') {
             await supabaseAdmin.from('staff').insert([{
                 user_id: userId,
-                staff_id: metadata.employeeId || `EMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                staff_id: metadata.employeeId || `EMP-${Date.now()}`,
                 department: metadata.departmentCode,
-                designation: metadata.role || 'LECTURER'
+                designation: role
             }]);
         }
 
@@ -104,7 +97,7 @@ exports.bulkCreateUsers = async (req, res, next) => {
         for (const user of users) {
             try {
                 let password = user.password;
-                if (!password && user.metadata?.dob) {
+                if (!password && user.metadata?.dob && user.metadata.dob.includes('-')) {
                     const [y, m, d] = user.metadata.dob.split('-');
                     password = `${d}${m}${y}`;
                 }
@@ -122,18 +115,18 @@ exports.bulkCreateUsers = async (req, res, next) => {
                 const userId = authData.user.id;
                 await supabaseAdmin.from('users').update({ roles: [user.role] }).eq('id', userId);
 
-                if (user.role === 'STUDENT' && user.metadata?.class_id) {
+                if (user.role === 'STUDENT') {
                     await supabaseAdmin.from('students').insert([{
                         user_id: userId,
-                        admission_number: user.metadata.admissionNo || `ENR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                        department: user.metadata.departmentCode,
-                        class_id: user.metadata.class_id
+                        admission_number: user.metadata?.admissionNo || `ENR-${Date.now()}`,
+                        department: user.metadata?.departmentCode,
+                        class_id: user.metadata?.class_id
                     }]);
-                } else if (user.role === 'STAFF') {
+                } else if (user.role !== 'SUPER_ADMIN') {
                     await supabaseAdmin.from('staff').insert([{
                         user_id: userId,
-                        staff_id: user.metadata.employeeId || `EMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                        department: user.metadata.departmentCode,
+                        staff_id: user.metadata?.employeeId || `EMP-${Date.now()}`,
+                        department: user.metadata?.departmentCode,
                         designation: user.role
                     }]);
                 }
@@ -241,7 +234,7 @@ exports.listUsers = async (req, res, next) => {
                 dept: deptMap[deptCode] || deptCode || u.user_metadata?.department || 'N/A',
                 status: u.last_sign_in_at ? 'Active' : 'Inactive',
                 dob: u.user_metadata?.dob || 'N/A',
-                officialId: role === 'STUDENT' ? studentMap[u.id] : (role === 'STAFF' || role === 'HOD' ? staffMap[u.id] : 'N/A')
+                officialId: role === 'STUDENT' ? studentMap[u.id] : (staffMap[u.id] || 'N/A')
             };
         });
         res.json({ users: formattedUsers });
@@ -257,7 +250,10 @@ exports.listStaff = async (req, res, next) => {
         if (error) throw error;
 
         const staff = users
-            .filter(u => (u.app_metadata?.roles?.includes('STAFF') || u.user_metadata?.role === 'STAFF' || u.app_metadata?.roles?.includes('HOD') || u.user_metadata?.role === 'HOD'))
+            .filter(u => {
+                const role = u.user_metadata?.role || u.app_metadata?.roles?.[0];
+                return role && role !== 'STUDENT';
+            })
             .map(u => ({
                 id: u.id,
                 name: u.user_metadata?.full_name || u.email
