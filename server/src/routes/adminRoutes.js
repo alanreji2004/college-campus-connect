@@ -1,12 +1,1 @@
-const express = require('express');
-const router = express.Router();
-const adminController = require('../controllers/adminController');
-// IMPORTANT: Add middleware to check if requester is SUPER_ADMIN (omitted for now for simplicity, but strictly needed in prod)
-
-router.get('/stats', adminController.getStats);
-router.post('/users', adminController.createUser);
-router.post('/users/bulk', adminController.bulkCreateUsers);
-router.post('/promote', adminController.promoteStudents);
-router.get('/users', adminController.listUsers);
-
-module.exports = router;
+const express = require('express');const router = express.Router();const adminController = require('../controllers/adminController');router.get('/stats', adminController.getStats);router.post('/users', adminController.createUser);router.post('/users/bulk', adminController.bulkCreateUsers);router.post('/promote', adminController.promoteStudents);router.get('/users', adminController.listUsers);module.exports = router;
