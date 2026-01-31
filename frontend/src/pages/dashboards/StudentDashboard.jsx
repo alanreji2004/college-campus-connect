@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config'; import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   Users,
@@ -30,7 +30,7 @@ export default function StudentDashboard() {
   const fetchDashboardData = async () => {
     try {
       if (!user?.id) return;
-      const res = await fetch(`http://localhost:5000/api/student/dashboard?studentId=${user.id}`);
+      const res = await fetch(`${API_BASE_URL}/student/dashboard?studentId=${user.id}`);
       if (res.ok) {
         const result = await res.json();
         setData(result);
@@ -241,7 +241,7 @@ function FaceRegistrationTab({ user, isRegistered }) {
       }
 
       // Upload embedding
-      const res = await fetch('http://localhost:5000/api/student/face-register', {
+      const res = await fetch(`${API_BASE_URL}/student/face-register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
