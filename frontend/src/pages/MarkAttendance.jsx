@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../config';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -53,7 +54,7 @@ export default function MarkAttendance() {
     const fetchTeacherSchedule = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`http://localhost:5000/api/admin/staff-dashboard-data?staffId=${user.id}`);
+            const res = await fetch(`${API_BASE_URL}/admin/staff-dashboard-data?staffId=${user.id}`);
             if (!res.ok) throw new Error('Failed to fetch schedule');
             const result = await res.json();
             setSchedule(result.timetable || []);
@@ -75,7 +76,7 @@ export default function MarkAttendance() {
     const fetchAttendanceSheet = async () => {
         try {
             setLoadingSheet(true);
-            const res = await fetch(`http://localhost:5000/api/admin/attendance-sheet?classId=${activeSlot.class_id}&date=${date}&period=${activeSlot.period}`);
+            const res = await fetch(`${API_BASE_URL}/admin/attendance-sheet?classId=${activeSlot.class_id}&date=${date}&period=${activeSlot.period}`);
             if (!res.ok) throw new Error('Failed to fetch attendance sheet');
             const data = await res.json();
             setStudents(data.students.map(s => ({ ...s, status: s.status || null })));
@@ -107,7 +108,7 @@ export default function MarkAttendance() {
                 status: s.status,
                 marked_by: user.id
             }));
-            const res = await fetch('http://localhost:5000/api/admin/mark-attendance', {
+            const res = await fetch(`${API_BASE_URL}/admin/mark-attendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ records })
@@ -420,7 +421,7 @@ function VideoAttendanceModal({ classId, onClose, students, onMatch, onScanCompl
 
             if (!isMounted.current) return;
 
-            const res = await fetch(`http://localhost:5000/api/admin/class-embeddings?classId=${classId}`);
+            const res = await fetch(`${API_BASE_URL}/admin/class-embeddings?classId=${classId}`);
             const { embeddings } = await res.json();
 
             if (isMounted.current && embeddings.length > 0) {
