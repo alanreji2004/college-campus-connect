@@ -22,7 +22,9 @@ import {
   UserCheck,
   FileEdit,
   ArrowRight,
-  TrendingUp
+  TrendingUp,
+  Menu,
+  X
 } from 'lucide-react';
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -33,6 +35,7 @@ export default function Layout() {
   const primaryRole = roles[0];
   const location = useLocation();
   const [todaySchedule, setTodaySchedule] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const facultyRoles = ['STAFF', 'LECTURER', 'HOD', 'PRINCIPAL'];
   const isFaculty = roles.some(r => facultyRoles.includes(r));
   useEffect(() => {
@@ -40,6 +43,12 @@ export default function Layout() {
       fetchTodaySchedule();
     }
   }, [user, isFaculty]);
+
+  // Close sidebar on route change
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname, location.search]);
+
   const fetchTodaySchedule = async () => {
     try {
       const dayIdx = (new Date().getDay() + 6) % 7;
@@ -116,9 +125,21 @@ export default function Layout() {
     }
   };
   return (
-    <div className="flex min-h-screen bg-slate-50/50 font-sans">
-      <aside className="w-64 bg-white border-r border-slate-200 hidden lg:flex flex-col sticky top-0 h-screen">
-        <div className="p-6 border-b border-slate-100">
+    <div className="flex h-screen overflow-hidden bg-slate-50/50 font-sans">
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-30 lg:hidden animate-in fade-in duration-300"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex lg:flex-col lg:h-screen
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 shadow-lg shadow-primary-200 text-white">
               <Shield size={24} />
@@ -128,6 +149,12 @@ export default function Layout() {
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">{primaryRole || 'User'}</div>
             </div>
           </div>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden text-slate-400 hover:text-slate-600"
+          >
+            <X size={24} />
+          </button>
         </div>
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-hide">
           <div className="pb-4">
@@ -196,11 +223,17 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <div className="flex min-h-screen flex-1 flex-col overflow-hidden">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-4 shadow-sm backdrop-blur-md sticky top-0 z-20">
+      <div className="flex flex-1 flex-col h-full overflow-hidden">
+        <header className="flex-shrink-0 flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-4 shadow-sm backdrop-blur-md z-20">
           <div className="flex items-center gap-3 lg:hidden">
-            <div className="h-10 w-10 rounded-xl bg-primary-600 flex items-center justify-center text-white shadow-lg shadow-primary-200">
-              <Shield size={20} />
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <Menu size={24} />
+            </button>
+            <div className="h-8 w-8 rounded-lg bg-primary-600 flex items-center justify-center text-white shadow-lg shadow-primary-200">
+              <Shield size={16} />
             </div>
             <span className="text-lg font-bold text-slate-900 tracking-tight">Campus Connect</span>
           </div>
@@ -214,11 +247,11 @@ export default function Layout() {
             </div>
           </div>
         </header>
-        <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
+        <div className="flex-1 p-4 md:p-6 lg:p-10 overflow-y-auto">
           <div className="max-w-[1600px] mx-auto">
             <Outlet />
           </div>
-        </main>
+        </div>
         <footer className="border-t border-slate-200 bg-white/60 px-8 py-5 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
           <div className="flex items-center justify-between max-w-[1600px] mx-auto">
             <span>© {new Date().getFullYear()} Campus Connect</span>

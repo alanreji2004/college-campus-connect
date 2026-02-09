@@ -69,37 +69,39 @@ export default function StudentDashboard() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-4 border-b border-slate-200">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'overview'
-            ? 'border-primary-600 text-primary-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-        >
-          <LayoutDashboard size={18} />
-          Overview
-        </button>
-        <button
-          onClick={() => setActiveTab('timetable')}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'timetable'
-            ? 'border-primary-600 text-primary-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-        >
-          <Calendar size={18} />
-          Timetable
-        </button>
-        <button
-          onClick={() => setActiveTab('face-registration')}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'face-registration'
-            ? 'border-primary-600 text-primary-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-        >
-          <ScanFace size={18} />
-          Face Registration
-        </button>
+      <div className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="flex items-center gap-4 border-b border-slate-200 min-w-max">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'overview'
+              ? 'border-primary-600 text-primary-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            <LayoutDashboard size={18} />
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('timetable')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'timetable'
+              ? 'border-primary-600 text-primary-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            <Calendar size={18} />
+            Timetable
+          </button>
+          <button
+            onClick={() => setActiveTab('face-registration')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'face-registration'
+              ? 'border-primary-600 text-primary-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            <ScanFace size={18} />
+            Face Registration
+          </button>
+        </div>
       </div>
 
       {activeTab === 'overview' && (

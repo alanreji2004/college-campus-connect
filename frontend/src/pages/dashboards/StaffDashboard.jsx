@@ -207,7 +207,7 @@ export default function StaffDashboard() {
             <h3 className="font-bold text-lg text-slate-900">Department Staff</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm min-w-[600px]">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
                 <tr>
                   <th className="px-6 py-4">Name</th>
@@ -251,7 +251,7 @@ export default function StaffDashboard() {
                 <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold">{data.hodData.students.filter(s => s.classId === selectedClass.id).length} Students</span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-left text-sm min-w-[600px]">
                   <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
                     <tr>
                       <th className="px-6 py-4">Admission No</th>
@@ -305,32 +305,34 @@ export default function StaffDashboard() {
           </div>
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
-                  <tr>
-                    <th className="px-6 py-4">Code</th>
-                    <th className="px-6 py-4">Name</th>
-                    <th className="px-6 py-4 text-center">Cred</th>
-                    <th className="px-6 py-4 text-center">Sem</th>
-                    <th className="px-6 py-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.hodData.subjects.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 font-mono font-bold text-slate-700">{s.code}</td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{s.name}</td>
-                      <td className="px-6 py-4 text-center"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">{s.credits}</span></td>
-                      <td className="px-6 py-4 text-center"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">S{s.semester}</span></td>
-                      <td className="px-6 py-4 text-right">
-                        <button onClick={() => handleDeleteSubject(s.id)} className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-full transition-all">
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm min-w-[600px]">
+                  <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-xs">
+                    <tr>
+                      <th className="px-6 py-4">Code</th>
+                      <th className="px-6 py-4">Name</th>
+                      <th className="px-6 py-4 text-center">Cred</th>
+                      <th className="px-6 py-4 text-center">Sem</th>
+                      <th className="px-6 py-4 text-right">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.hodData.subjects.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-4 font-mono font-bold text-slate-700">{s.code}</td>
+                        <td className="px-6 py-4 font-bold text-slate-900">{s.name}</td>
+                        <td className="px-6 py-4 text-center"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">{s.credits}</span></td>
+                        <td className="px-6 py-4 text-center"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">S{s.semester}</span></td>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={() => handleDeleteSubject(s.id)} className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-full transition-all">
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -352,7 +354,7 @@ export default function StaffDashboard() {
           {selectedClass && (
             <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
+                <table className="w-full border-collapse min-w-[1000px]">
                   <thead>
                     <tr className="bg-slate-900 text-white">
                       <th className="px-4 py-6 text-left font-bold uppercase text-xs tracking-wider border-r border-slate-800">Day / Period</th>
@@ -522,7 +524,7 @@ export default function StaffDashboard() {
             </div>
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden ring-1 ring-slate-100/50">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse min-w-[1000px]">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100">
                       <th className="p-5 text-[10px] font-bold uppercase tracking-widest text-slate-400 w-28 border-r border-slate-100">Day</th>

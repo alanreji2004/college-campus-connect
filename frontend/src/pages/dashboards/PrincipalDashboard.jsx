@@ -55,9 +55,9 @@ export default function PrincipalDashboard() {
   ];
 
   return (
-    <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="space-y-8 max-w-7xl mx-auto w-full">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
           {tabs.find(t => t.id === activeTab)?.label || 'Principal Dashboard'}
         </h1>
         <p className="text-slate-500 mt-1">

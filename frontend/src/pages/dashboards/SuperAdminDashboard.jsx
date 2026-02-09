@@ -78,7 +78,7 @@ export default function SuperAdminDashboard() {
   ];
 
   return (
-    <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="space-y-8 max-w-7xl mx-auto w-full">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">
           {tabs.find(t => t.id === activeTab)?.label || 'Dashboard'}

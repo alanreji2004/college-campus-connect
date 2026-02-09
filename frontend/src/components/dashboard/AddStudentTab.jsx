@@ -279,7 +279,7 @@ export default function AddStudentTab({ departments, staffList }) {
                             <h3 className="text-lg font-bold text-slate-900">Enrolled Students ({classStudents.length})</h3>
                         </div>
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
+                            <table className="w-full text-left text-sm min-w-[600px]">
                                 <thead className="bg-slate-50 text-slate-500">
                                     <tr>
                                         <th className="px-6 py-4 font-semibold">Name</th>

@@ -106,7 +106,7 @@ export default function TimetableTab({ departments, staffList }) {
             </div>
             <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
+                    <table className="w-full border-collapse min-w-[1000px]">
                         <thead>
                             <tr className="bg-slate-900 text-white">
                                 <th className="px-4 py-6 text-left font-bold uppercase text-xs tracking-wider border-r border-slate-800">Day / Period</th>
