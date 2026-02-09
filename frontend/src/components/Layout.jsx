@@ -83,7 +83,13 @@ export default function Layout() {
     navItems.push({ to: '/mark-attendance', label: 'Mark Attendance', icon: UserCheck });
     navItems.push({ to: '/leave', label: 'Leave & Apps', icon: FileEdit });
     navItems.push({ to: '/forms', label: 'My Forms', icon: FileText });
-    if (roles.includes('HOD') || roles.includes('PRINCIPAL')) {
+    if (roles.includes('HOD')) {
+      navItems.push({ to: '/dashboard?tab=staff', label: 'Dept Staff', icon: Users });
+      navItems.push({ to: '/dashboard?tab=students', label: 'Dept Students', icon: GraduationCap });
+      navItems.push({ to: '/dashboard?tab=timetable', label: 'Manage Timetable', icon: CalendarDays });
+      navItems.push({ to: '/dashboard?tab=subjects', label: 'Dept Subjects', icon: BookOpen });
+    }
+    if (roles.includes('PRINCIPAL')) {
       navItems.push({ to: '/attendance', label: 'Dept Stats', icon: TrendingUp });
     }
   }
