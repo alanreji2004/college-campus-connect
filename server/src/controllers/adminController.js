@@ -156,24 +156,30 @@ exports.getSubjectAttendance = async (req, res, next) => {
     try {
         const { classId, subjectId } = req.query;
         if (!classId || !subjectId) return res.status(400).json({ error: 'classId and subjectId are required' });
+
         const { data: students, error: studentError } = await supabaseAdmin.from('students').select('id, admission_number, users(full_name)').eq('class_id', classId);
         if (studentError) throw studentError;
+
         const { data: attendance, error: attError } = await supabaseAdmin.from('attendance').select('student_id, status').eq('class_id', classId).eq('subject_id', subjectId);
         if (attError) throw attError;
+
         const stats = {};
         (students || []).forEach(s => {
             stats[s.id] = { id: s.id, name: s.users?.full_name || 'N/A', admission: s.admission_number, total: 0, present: 0 };
         });
+
         (attendance || []).forEach(a => {
             if (stats[a.student_id]) {
                 stats[a.student_id].total += 1;
                 if (a.status === 'PRESENT') stats[a.student_id].present += 1;
             }
         });
+
         const result = Object.values(stats).map(s => {
             const percentage = s.total > 0 ? (s.present / s.total) * 100 : 0;
             return { ...s, percentage: parseFloat(percentage).toFixed(2) };
         });
+
         result.sort((a, b) => a.admission.localeCompare(b.admission));
         res.json({ attendance: result });
     } catch (error) {
